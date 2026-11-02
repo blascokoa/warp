@@ -387,6 +387,7 @@ fn endpoint_definitions_join_keys_fail_closed_and_recover() {
             .update(&mut app, |manager, ctx| {
                 manager.set_custom_endpoint_definitions(definitions.clone(), ctx);
                 assert_eq!(manager.custom_endpoints()[0].api_key, "");
+                assert!(!manager.has_usable_custom_endpoint());
                 manager.persist_custom_endpoint_keys(keys, ctx)
             })
             .unwrap();
@@ -394,6 +395,8 @@ fn endpoint_definitions_join_keys_fail_closed_and_recover() {
             assert_eq!(manager.custom_endpoint_key(&endpoint_id), Some("secret"));
             assert_eq!(manager.custom_endpoints()[0].api_key, "secret");
             assert!(manager.custom_model_providers_for_request(true).is_some());
+            assert!(manager.keys().custom_endpoints.is_empty());
+            assert!(manager.has_usable_custom_endpoint());
         });
 
         manager.update(&mut app, |manager, ctx| {
