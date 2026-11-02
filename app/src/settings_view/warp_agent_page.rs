@@ -1722,8 +1722,7 @@ impl WarpAgentPageView {
             return;
         }
         let endpoint = ApiKeyManager::as_ref(ctx)
-            .keys()
-            .custom_endpoints
+            .custom_endpoints()
             .get(index)
             .cloned();
         let Some(endpoint) = endpoint else {

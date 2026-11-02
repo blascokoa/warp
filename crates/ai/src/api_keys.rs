@@ -1113,6 +1113,12 @@ impl ApiKeyManager {
         }
     }
 
+    /// Returns `true` when at least one custom endpoint is complete enough to ship with an agent
+    /// request.
+    pub fn has_usable_custom_endpoint(&self) -> bool {
+        self.custom_model_providers_for_request(true).is_some()
+    }
+
     /// Builds the `CustomModelProviders` registry that ships with every agent request.
     ///
     /// Emits one [`CustomModelProvider`] per configured [`CustomEndpoint`], each populated with

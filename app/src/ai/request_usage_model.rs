@@ -568,14 +568,9 @@ impl AIRequestUsageModel {
         {
             return true;
         }
-        let has_custom_endpoint_key = api_keys
-            .keys()
-            .custom_endpoints
-            .iter()
-            .any(|endpoint| !endpoint.api_key.trim().is_empty());
         if user_workspaces.is_byo_endpoint_enabled(ctx)
             && user_workspaces.are_member_byo_endpoints_allowed(scope)
-            && has_custom_endpoint_key
+            && api_keys.has_usable_custom_endpoint()
         {
             return true;
         }

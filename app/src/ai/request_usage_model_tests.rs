@@ -2,7 +2,11 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use ai::LLMProvider;
-use ai::api_keys::{ApiKeyManager, AwsCredentials, AwsCredentialsState, GrokTokens};
+use ai::api_keys::{
+    ApiKeyManager, AwsCredentials, AwsCredentialsState, CustomEndpointDefinition,
+    CustomEndpointDefinitions, CustomEndpointId, CustomEndpointModel, CustomEndpointSchema,
+    GrokTokens,
+};
 use chrono::Duration;
 use warp_core::features::FeatureFlag;
 use warp_core::telemetry::testing::MockTelemetryContextProvider;
@@ -22,9 +26,10 @@ use crate::workspaces::user_workspaces::{
     TeamContextForOperation, TeamlessScopeForTest, UserWorkspaces,
 };
 use crate::workspaces::workspace::{
-    AiOverages, ByoApiKeyPolicy, CustomerType, EnterpriseCreditsAutoReloadPolicy,
-    EnterprisePayAsYouGoPolicy, HostEnablementSetting, LlmHostSettings, ManagedByokByoePolicy,
-    PurchaseAddOnCreditsPolicy, TeamByoSettings, Workspace, WorkspaceUid,
+    AiOverages, ByoApiKeyPolicy, ByoEndpointPolicy, CustomerType,
+    EnterpriseCreditsAutoReloadPolicy, EnterprisePayAsYouGoPolicy, HostEnablementSetting,
+    LlmHostSettings, ManagedByokByoePolicy, PurchaseAddOnCreditsPolicy, TeamByoSettings, Workspace,
+    WorkspaceUid,
 };
 
 fn create_test_workspace() -> (WorkspaceUid, Workspace) {
@@ -1632,6 +1637,67 @@ fn test_out_of_credits_refined_by_local_byo_key() {
             assert!(
                 model.has_any_ai_remaining(&TeamlessScopeForTest, ctx),
                 "out of credits with a stored key should permit AI",
+            );
+        });
+    });
+}
+
+#[test]
+fn test_out_of_credits_refined_by_settings_backed_custom_endpoint() {
+    App::test((), |mut app| async move {
+        let (_uid, mut workspace) = create_test_workspace();
+        workspace.billing_metadata.tier.byo_endpoint_policy =
+            Some(ByoEndpointPolicy { enabled: true });
+        add_user_workspaces_with_workspace(&mut app, workspace);
+        let request_usage_model = add_request_usage_model(&mut app);
+
+        request_usage_model.update(&mut app, |model, ctx| {
+            model.request_limit_info = RequestLimitInfo::new_for_test(10, 10);
+            model.apply_server_availability(
+                Ok(AICreditAvailability::unavailable(
+                    AICreditDenialReason::OutOfCredits,
+                )),
+                ctx,
+            );
+            assert!(!model.has_any_ai_remaining(&TeamlessScopeForTest, ctx));
+        });
+
+        // Endpoints added through settings live in definitions plus a per-endpoint key, never in
+        // the legacy `ApiKeys::custom_endpoints` list.
+        let endpoint_id = CustomEndpointId::generated();
+        let mut definitions = CustomEndpointDefinitions::default();
+        definitions
+            .insert(
+                endpoint_id.clone(),
+                CustomEndpointDefinition {
+                    name: "Ollama".to_owned(),
+                    base_url: "https://ollama.example.com/v1".to_owned(),
+                    schema: CustomEndpointSchema::default(),
+                    models: vec![CustomEndpointModel {
+                        name: "llama3".to_owned(),
+                        alias: None,
+                        config_key: "config-key".to_owned(),
+                    }],
+                },
+            )
+            .unwrap();
+        ApiKeyManager::handle(&app)
+            .update(&mut app, |manager, ctx| {
+                manager.set_custom_endpoint_definitions(definitions, ctx);
+                manager.persist_custom_endpoint_key(endpoint_id, Some("key".to_owned()), ctx)
+            })
+            .unwrap();
+
+        request_usage_model.read(&app, |model, ctx| {
+            assert!(
+                ApiKeyManager::as_ref(ctx)
+                    .keys()
+                    .custom_endpoints
+                    .is_empty()
+            );
+            assert!(
+                model.has_any_ai_remaining(&TeamlessScopeForTest, ctx),
+                "out of credits with a settings-backed custom endpoint should permit AI",
             );
         });
     });
